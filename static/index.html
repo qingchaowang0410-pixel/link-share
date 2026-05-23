@@ -35,6 +35,7 @@
               <span x-text="userName || '未登录'"></span>
               <span x-show="isAdmin" class="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded font-bold">ADMIN</span>
             </span>
+            <button @click="openProfile()" class="text-xs text-slate-400 hover:text-indigo-600">个人资料</button>
             <button @click="logout()" class="text-xs text-slate-400 hover:text-red-600">退出</button>
           </div>
         </nav>
@@ -70,6 +71,41 @@
           <button @click="toggleAuthMode()" class="text-indigo-600 hover:underline"
             x-text="authMode === 'register' ? '去登录' : '去注册'"></button>
         </div>
+      </div>
+    </div>
+
+    <!-- 个人资料 / 修改密码弹窗 -->
+    <div x-show="showProfile" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-40 p-4" @click.self="showProfile = false">
+      <div class="bg-white rounded-lg p-6 max-w-sm w-full">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-bold">个人资料</h2>
+          <button @click="showProfile = false" class="text-slate-400 hover:text-slate-700">✕</button>
+        </div>
+
+        <div class="flex items-center gap-3 mb-5 pb-4 border-b border-slate-100">
+          <span class="inline-flex items-center justify-center w-10 h-10 rounded-full bg-indigo-100 text-indigo-700 font-bold" x-text="userName ? userName.charAt(0).toUpperCase() : '?'"></span>
+          <div>
+            <div class="font-medium text-slate-800 flex items-center gap-2">
+              <span x-text="userName"></span>
+              <span x-show="isAdmin" class="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded font-bold">ADMIN</span>
+            </div>
+            <div class="text-xs text-slate-400" x-text="isAdmin ? '管理员（可管理所有链接）' : '成员（仅可管理自己添加的链接）'"></div>
+          </div>
+        </div>
+
+        <h3 class="text-sm font-semibold mb-3">修改密码</h3>
+        <div class="space-y-3">
+          <input type="password" x-model="pwdForm.old" placeholder="当前密码" autocomplete="current-password"
+            class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          <input type="password" x-model="pwdForm.new1" placeholder="新密码（至少 6 位）" autocomplete="new-password"
+            class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          <input type="password" x-model="pwdForm.new2" @keydown.enter="submitChangePassword()" placeholder="再次输入新密码" autocomplete="new-password"
+            class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        </div>
+        <p x-show="pwdMessage" :class="pwdMessageOk ? 'text-emerald-600' : 'text-red-600'" class="text-sm mt-2" x-text="pwdMessage"></p>
+        <button @click="submitChangePassword()"
+          :disabled="!pwdForm.old || !pwdForm.new1 || !pwdForm.new2"
+          class="w-full mt-4 px-5 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">确认修改</button>
       </div>
     </div>
 
@@ -137,7 +173,7 @@
                       <span x-text="link.category"></span> · 加入 <span x-text="formatTime(link.created_at)"></span>
                     </div>
                   </div>
-                  <button @click="deleteLink(link)" title="删除"
+                  <button x-show="canEdit(link)" @click="deleteLink(link)" title="删除"
                     class="text-xs text-slate-400 hover:text-red-600 px-2 py-0.5 rounded hover:bg-red-50 shrink-0">删除</button>
                 </li>
               </template>
@@ -365,12 +401,13 @@
               <!-- 顶部：分类 + 操作 -->
               <div class="flex items-start justify-between gap-2 mb-2">
                 <div class="flex items-center gap-2 min-w-0">
-                  <button @click="toggleRead(link)" :title="link.is_read ? '已读' : '未读'"
+                  <button @click="canEdit(link) && toggleRead(link)" :disabled="!canEdit(link)"
+                    :title="link.is_read ? '已读' : '未读'"
                     class="w-4 h-4 rounded-full border-2 shrink-0 transition"
                     :class="link.is_read ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300 hover:border-amber-400'"></button>
                   <span class="text-[11px] px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded font-medium" x-text="link.category"></span>
                 </div>
-                <div class="flex gap-1.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div x-show="canEdit(link)" class="flex gap-1.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button @click="editLink(link)" class="text-xs text-slate-500 hover:text-indigo-600 px-1.5 py-0.5 rounded hover:bg-indigo-50">编辑</button>
                   <button @click="deleteLink(link)" class="text-xs text-slate-500 hover:text-red-600 px-1.5 py-0.5 rounded hover:bg-red-50">删除</button>
                 </div>

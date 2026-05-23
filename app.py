@@ -24,6 +24,7 @@ from database import (
     get_conn,
     init_db,
     set_link_tags,
+    update_password,
     upsert_sharer,
     upsert_tags,
     verify_user,
@@ -175,6 +176,26 @@ def api_me(request: Request):
     return {"username": row["username"], "is_admin": bool(row["is_admin"])}
 
 
+class ChangePasswordIn(BaseModel):
+    old_password: str
+    new_password: str
+
+
+@app.post("/api/change-password")
+def api_change_password(payload: ChangePasswordIn, request: Request):
+    username = _current_user(request)
+    if not username:
+        raise HTTPException(401, "未登录")
+    if len(payload.new_password or "") < 6:
+        raise HTTPException(400, "新密码至少 6 位")
+    with get_conn() as conn:
+        # 先校验旧密码正确
+        if not verify_user(conn, username, payload.old_password or ""):
+            raise HTTPException(403, "当前密码不正确")
+        update_password(conn, username, payload.new_password)
+    return {"ok": True}
+
+
 class LinkIn(BaseModel):
     url: str
     title: str = ""
@@ -253,6 +274,28 @@ def _actor(request: Request, x_user_name: Optional[str] = None) -> str:
     return ""
 
 
+def _is_admin(conn, username: Optional[str]) -> bool:
+    if not username:
+        return False
+    row = conn.execute(
+        "SELECT is_admin FROM users WHERE username = ?", (username,)
+    ).fetchone()
+    return bool(row and row["is_admin"])
+
+
+def _ensure_can_edit(conn, link_id: int, username: Optional[str]):
+    """权限闸：只有管理员、或链接的添加者本人，才能改/删该链接。否则抛 403。
+    （后端强制校验，前端隐藏按钮只是体验，真正拦截在这里。）"""
+    row = conn.execute("SELECT added_by FROM links WHERE id = ?", (link_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "链接不存在")
+    if _is_admin(conn, username):
+        return
+    if row["added_by"] and username and row["added_by"] == username:
+        return
+    raise HTTPException(403, "只能修改自己添加的链接")
+
+
 @app.post("/api/links")
 def api_create_link(payload: LinkIn, request: Request, x_user_name: Optional[str] = Header(default=None)):
     if not payload.url.strip():
@@ -288,9 +331,8 @@ def api_create_link(payload: LinkIn, request: Request, x_user_name: Optional[str
 def api_update_link(link_id: int, payload: LinkPatch, request: Request, x_user_name: Optional[str] = Header(default=None)):
     actor = _actor(request, x_user_name)
     with get_conn() as conn:
-        existing = conn.execute("SELECT id FROM links WHERE id = ?", (link_id,)).fetchone()
-        if not existing:
-            raise HTTPException(404, "链接不存在")
+        # 权限：只有管理员或本人能改
+        _ensure_can_edit(conn, link_id, _current_user(request))
 
         fields, params = [], []
         if payload.url is not None:
@@ -333,8 +375,10 @@ def api_update_link(link_id: int, payload: LinkPatch, request: Request, x_user_n
 
 
 @app.delete("/api/links/{link_id}")
-def api_delete_link(link_id: int):
+def api_delete_link(link_id: int, request: Request):
     with get_conn() as conn:
+        # 权限：只有管理员或本人能删
+        _ensure_can_edit(conn, link_id, _current_user(request))
         cur = conn.execute("DELETE FROM links WHERE id = ?", (link_id,))
         if cur.rowcount == 0:
             raise HTTPException(404, "链接不存在")

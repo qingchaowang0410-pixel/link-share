@@ -136,6 +136,17 @@ def create_user(conn, username: str, password: str, is_admin: bool = False) -> d
     return {"id": cur.lastrowid, "username": username, "is_admin": is_admin}
 
 
+def update_password(conn, username: str, new_password: str) -> bool:
+    """修改用户密码，重新生成 salt。成功返回 True。"""
+    salt = secrets.token_hex(16)
+    pwd_hash = _hash_password(new_password, salt)
+    cur = conn.execute(
+        "UPDATE users SET password_hash = ?, salt = ? WHERE username = ?",
+        (pwd_hash, salt, username.strip()),
+    )
+    return cur.rowcount > 0
+
+
 def verify_user(conn, username: str, password: str) -> dict | None:
     """校验用户名+密码，成功返回用户信息，失败返回 None。用恒定时间比较防时序攻击。"""
     user = get_user(conn, username)

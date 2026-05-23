@@ -33,6 +33,11 @@ function appState() {
     registerOpen: false,
     loginForm: { username: "", password: "", invite: "" },
     loginError: "",
+    // 个人资料 / 改密弹窗
+    showProfile: false,
+    pwdForm: { old: "", new1: "", new2: "" },
+    pwdMessage: "",
+    pwdMessageOk: false,
 
     emptyForm() {
       return {
@@ -126,6 +131,48 @@ function appState() {
       this.isAdmin = false;
       localStorage.removeItem("linkhub_auth_token");
       this.openLogin();
+    },
+
+    // 我能否编辑/删除这条链接：管理员能动所有，普通用户只能动自己加的
+    canEdit(link) {
+      if (this.isAdmin) return true;
+      return !!link.added_by && link.added_by === this.userName;
+    },
+
+    openProfile() {
+      this.showProfile = true;
+      this.pwdForm = { old: "", new1: "", new2: "" };
+      this.pwdMessage = "";
+    },
+
+    async submitChangePassword() {
+      this.pwdMessage = "";
+      if (this.pwdForm.new1.length < 6) {
+        this.pwdMessage = "新密码至少 6 位";
+        this.pwdMessageOk = false;
+        return;
+      }
+      if (this.pwdForm.new1 !== this.pwdForm.new2) {
+        this.pwdMessage = "两次输入的新密码不一致";
+        this.pwdMessageOk = false;
+        return;
+      }
+      try {
+        await this.api("/api/change-password", {
+          method: "POST",
+          body: JSON.stringify({
+            old_password: this.pwdForm.old,
+            new_password: this.pwdForm.new1,
+          }),
+        });
+        this.pwdMessage = "✓ 密码已修改";
+        this.pwdMessageOk = true;
+        this.pwdForm = { old: "", new1: "", new2: "" };
+        setTimeout(() => (this.showProfile = false), 1200);
+      } catch (e) {
+        this.pwdMessage = e.message || "修改失败";
+        this.pwdMessageOk = false;
+      }
     },
 
     async refreshAll() {
