@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>链接分享平台</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased">
+  <div id="app" x-data="appState()" x-init="init()" x-cloak>
+
+    <!-- 顶部导航 -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-10">
+      <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <span class="text-xl font-bold text-indigo-600">🔗 网页链接收藏夹</span>
+        </div>
+        <nav class="flex gap-1 items-center">
+          <button @click="switchView('dashboard')"
+            :class="view === 'dashboard' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-100'"
+            class="px-4 py-2 rounded-md text-sm font-medium transition">看板</button>
+          <button @click="switchView('add')"
+            :class="view === 'add' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-100'"
+            class="px-4 py-2 rounded-md text-sm font-medium transition">添加链接</button>
+          <button @click="switchView('library')"
+            :class="view === 'library' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-100'"
+            class="px-4 py-2 rounded-md text-sm font-medium transition">链接库</button>
+          <button @click="switchView('sharers')"
+            :class="view === 'sharers' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-100'"
+            class="px-4 py-2 rounded-md text-sm font-medium transition">分享人</button>
+          <div class="ml-3 pl-3 border-l border-slate-200 flex items-center gap-2">
+            <span class="flex items-center gap-1.5 text-sm text-slate-600">
+              <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold" x-text="userName ? userName.charAt(0).toUpperCase() : '?'"></span>
+              <span x-text="userName || '未登录'"></span>
+              <span x-show="isAdmin" class="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded font-bold">ADMIN</span>
+            </span>
+            <button @click="logout()" class="text-xs text-slate-400 hover:text-red-600">退出</button>
+          </div>
+        </nav>
+      </div>
+    </header>
+
+    <!-- 登录 / 注册弹窗 -->
+    <div x-show="askLogin" x-cloak class="fixed inset-0 bg-black/60 flex items-center justify-center z-40 p-4">
+      <div class="bg-white rounded-lg p-6 max-w-sm w-full">
+        <h2 class="text-lg font-bold mb-1" x-text="authMode === 'register' ? '注册账号' : '登录'"></h2>
+        <p class="text-sm text-slate-500 mb-4" x-text="authMode === 'register' ? '注册后即可加入团队链接库' : '用你的账号登录'"></p>
+
+        <div class="space-y-3">
+          <input type="text" x-model="loginForm.username" @keydown.enter="submitLogin()"
+            placeholder="用户名" maxlength="32" x-ref="loginUser" autocomplete="username"
+            class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          <input type="password" x-model="loginForm.password" @keydown.enter="submitLogin()"
+            placeholder="密码（至少 6 位）" autocomplete="current-password"
+            class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          <input x-show="authMode === 'register'" type="text" x-model="loginForm.invite" @keydown.enter="submitLogin()"
+            placeholder="邀请码"
+            class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        </div>
+
+        <p x-show="loginError" class="text-sm text-red-600 mt-2" x-text="loginError"></p>
+
+        <button @click="submitLogin()" :disabled="!loginForm.username.trim() || !loginForm.password"
+          class="w-full mt-4 px-5 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+          x-text="authMode === 'register' ? '注册并进入' : '登录'"></button>
+
+        <div x-show="registerOpen" class="text-center mt-3 text-sm text-slate-500">
+          <span x-text="authMode === 'register' ? '已有账号？' : '还没有账号？'"></span>
+          <button @click="toggleAuthMode()" class="text-indigo-600 hover:underline"
+            x-text="authMode === 'register' ? '去登录' : '去注册'"></button>
+        </div>
+      </div>
+    </div>
+
+    <main class="max-w-6xl mx-auto px-6 py-8">
+
+      <!-- 看板 -->
+      <section x-show="view === 'dashboard'">
+        <h1 class="text-2xl font-bold mb-6">数据看板</h1>
+
+        <div class="grid grid-cols-3 gap-4 mb-8">
+          <div class="bg-white rounded-lg p-6 border border-slate-200 shadow-md">
+            <div class="text-sm text-slate-500">总链接数</div>
+            <div class="text-3xl font-bold mt-2" x-text="stats.total"></div>
+          </div>
+          <div class="bg-white rounded-lg p-6 border border-slate-200 shadow-md">
+            <div class="text-sm text-slate-500">本周点击次数</div>
+            <div class="text-3xl font-bold mt-2 text-amber-600" x-text="stats.week_clicks || 0"></div>
+          </div>
+          <div class="bg-white rounded-lg p-6 border border-slate-200 shadow-md">
+            <div class="text-sm text-slate-500">本周新增</div>
+            <div class="text-3xl font-bold mt-2 text-indigo-600" x-text="stats.week_new"></div>
+          </div>
+        </div>
+
+        <!-- 🔥 高频 / ❄️ 冷门候选 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <div class="bg-white rounded-lg p-6 border border-slate-200 shadow-md">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="font-semibold">🔥 高频网站</h3>
+              <span class="text-xs text-slate-400">团队热门</span>
+            </div>
+            <template x-if="!stats.top_clicked || stats.top_clicked.length === 0">
+              <p class="text-slate-400 text-sm py-3">还没有点击数据，去点几条试试</p>
+            </template>
+            <ul class="space-y-2">
+              <template x-for="(link, i) in stats.top_clicked" :key="link.id">
+                <li class="py-2 border-b border-slate-100 last:border-0 flex items-start gap-3">
+                  <span class="text-slate-400 text-sm w-6 shrink-0" x-text="'#' + (i + 1)"></span>
+                  <div class="flex-1 min-w-0">
+                    <a :href="link.url" target="_blank" rel="noopener" @click="recordClick(link)"
+                      class="text-slate-800 hover:text-indigo-600 font-medium block truncate" x-text="link.title || link.url"></a>
+                    <div class="text-xs text-slate-400 mt-0.5" x-text="link.category"></div>
+                  </div>
+                  <span class="text-xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded shrink-0 font-medium" x-text="'🔥 ' + link.click_count"></span>
+                </li>
+              </template>
+            </ul>
+          </div>
+
+          <div class="bg-white rounded-lg p-6 border border-slate-200 shadow-md">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="font-semibold">❄️ 冷门候选</h3>
+              <span class="text-xs text-slate-400">30 天无人点击</span>
+            </div>
+            <template x-if="!stats.cold_links || stats.cold_links.length === 0">
+              <p class="text-slate-400 text-sm py-3">没有候选清理项 👍</p>
+            </template>
+            <ul class="space-y-2">
+              <template x-for="link in stats.cold_links" :key="link.id">
+                <li class="py-2 border-b border-slate-100 last:border-0 flex items-start gap-3">
+                  <div class="flex-1 min-w-0">
+                    <a :href="link.url" target="_blank" rel="noopener" @click="recordClick(link)"
+                      class="text-slate-800 hover:text-indigo-600 font-medium block truncate" x-text="link.title || link.url"></a>
+                    <div class="text-xs text-slate-400 mt-0.5">
+                      <span x-text="link.category"></span> · 加入 <span x-text="formatTime(link.created_at)"></span>
+                    </div>
+                  </div>
+                  <button @click="deleteLink(link)" title="删除"
+                    class="text-xs text-slate-400 hover:text-red-600 px-2 py-0.5 rounded hover:bg-red-50 shrink-0">删除</button>
+                </li>
+              </template>
+            </ul>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-6 mb-8">
+          <div class="bg-white rounded-lg p-6 border border-slate-200 shadow-md">
+            <h3 class="font-semibold mb-4">分类占比</h3>
+            <template x-if="stats.by_category && stats.by_category.length === 0">
+              <p class="text-slate-400 text-sm">暂无数据</p>
+            </template>
+            <div class="space-y-3">
+              <template x-for="c in stats.by_category" :key="c.category">
+                <div>
+                  <div class="flex justify-between text-sm mb-1">
+                    <span x-text="c.category"></span>
+                    <span class="text-slate-500" x-text="c.count + ' (' + Math.round(c.count * 100 / stats.total) + '%)'"></span>
+                  </div>
+                  <div class="h-2 bg-slate-100 rounded">
+                    <div class="h-2 bg-indigo-500 rounded" :style="'width:' + (c.count * 100 / stats.total) + '%'"></div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-lg p-6 border border-slate-200 shadow-md">
+            <h3 class="font-semibold mb-4">Top 5 分享人</h3>
+            <template x-if="stats.top_sharers && stats.top_sharers.length === 0">
+              <p class="text-slate-400 text-sm">还没有分享人</p>
+            </template>
+            <ul class="space-y-2">
+              <template x-for="(s, i) in stats.top_sharers" :key="s.name">
+                <li class="flex justify-between items-center py-2 border-b border-slate-100 last:border-0">
+                  <div class="flex items-center gap-3">
+                    <span class="text-slate-400 text-sm w-6" x-text="'#' + (i + 1)"></span>
+                    <button @click="openSharer(s.name)" class="text-indigo-600 hover:underline" x-text="s.name"></button>
+                  </div>
+                  <span class="text-sm text-slate-500" x-text="s.link_count + ' 条'"></span>
+                </li>
+              </template>
+            </ul>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-lg p-6 border border-slate-200 shadow-md">
+          <h3 class="font-semibold mb-4">最近添加</h3>
+          <template x-if="stats.recent && stats.recent.length === 0">
+            <p class="text-slate-400 text-sm">还没有链接，去添加吧！</p>
+          </template>
+          <ul class="space-y-2">
+            <template x-for="link in stats.recent" :key="link.id">
+              <li class="py-2 border-b border-slate-100 last:border-0 flex items-start gap-3">
+                <span class="text-xs px-2 py-1 bg-slate-100 rounded shrink-0" x-text="link.category"></span>
+                <div class="flex-1 min-w-0">
+                  <a :href="link.url" target="_blank" rel="noopener" @click="recordClick(link)" class="text-slate-800 hover:text-indigo-600 font-medium block truncate" x-text="link.title || link.url"></a>
+                  <div class="text-xs text-slate-400 mt-1">
+                    <span x-show="link.sharer_name">来自 <button @click="openSharer(link.sharer_name)" class="text-indigo-500 hover:underline" x-text="link.sharer_name"></button> · </span>
+                    <span x-text="link.created_at"></span>
+                  </div>
+                </div>
+              </li>
+            </template>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 添加链接 -->
+      <section x-show="view === 'add'">
+        <h1 class="text-2xl font-bold mb-6">添加链接</h1>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+          <!-- 表单 -->
+          <div class="lg:col-span-2 bg-white rounded-lg p-6 border border-slate-200 shadow-md">
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium mb-1">URL <span class="text-red-500">*</span></label>
+                <input type="url" x-model="form.url" @blur="fetchMeta()" @paste="$nextTick(() => fetchMeta())"
+                  placeholder="https://..." class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                <p class="text-xs text-slate-400 mt-1">
+                  <span x-show="!fetching && !fetchHint">粘贴 URL 后自动抓取标题、简介并猜分类</span>
+                  <span x-show="fetching" class="text-indigo-500">⏳ 正在抓取网页信息...</span>
+                  <span x-show="!fetching && fetchHint" :class="fetchOk ? 'text-emerald-600' : 'text-amber-600'" x-text="fetchHint"></span>
+                </p>
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium mb-1">标题</label>
+                <input type="text" x-model="form.title" placeholder="抓取失败时请手动填，留空则显示 URL"
+                  class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium mb-1">简介</label>
+                <textarea x-model="form.description" rows="2" placeholder="网站的描述（自动抓取，可修改）"
+                  class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+              </div>
+
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium mb-1">分类</label>
+                  <select x-model="form.category"
+                    class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <template x-for="c in categories" :key="c">
+                      <option :value="c" x-text="c"></option>
+                    </template>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium mb-1">分享人</label>
+                  <input type="text" x-model="form.sharer" placeholder="谁给你的这个链接"
+                    list="sharer-list"
+                    class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  <datalist id="sharer-list">
+                    <template x-for="s in allSharers" :key="s.name">
+                      <option :value="s.name"></option>
+                    </template>
+                  </datalist>
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium mb-1">标签（逗号分隔）</label>
+                <input type="text" x-model="form.tagsRaw" placeholder="例如：AI工具, 待研究, 周报素材"
+                  class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium mb-1">备注</label>
+                <textarea x-model="form.note" rows="2" placeholder="自己的想法 / 为什么收藏"
+                  class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+              </div>
+
+              <div class="flex items-center justify-between pt-2">
+                <label class="flex items-center text-sm">
+                  <input type="checkbox" x-model="form.is_read" class="mr-2" />
+                  标记为已读
+                </label>
+                <div class="flex gap-2">
+                  <button @click="resetForm()" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-md text-sm">清空</button>
+                  <button @click="submitLink()" :disabled="!form.url.trim()"
+                    class="px-5 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed">保存链接</button>
+                </div>
+              </div>
+              <p x-show="addMessage" :class="addMessageOk ? 'text-emerald-600' : 'text-red-600'" class="text-sm" x-text="addMessage"></p>
+            </div>
+          </div>
+
+          <!-- 右侧：最近添加 -->
+          <aside class="bg-white rounded-lg p-5 border border-slate-200 shadow-md self-start">
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="font-semibold text-slate-800">最近添加</h3>
+              <span class="text-xs text-slate-400" x-text="recentAdds.length + ' 条'"></span>
+            </div>
+            <template x-if="recentAdds.length === 0">
+              <p class="text-slate-400 text-sm py-4">还没有，添加第一条吧！</p>
+            </template>
+            <ul class="divide-y divide-slate-100">
+              <template x-for="link in recentAdds" :key="link.id">
+                <li class="py-3 first:pt-0 last:pb-0">
+                  <div class="flex items-start gap-2">
+                    <span class="text-[10px] px-1.5 py-0.5 bg-indigo-50 text-indigo-700 rounded shrink-0 mt-0.5" x-text="link.category"></span>
+                    <div class="min-w-0 flex-1">
+                      <a :href="link.url" target="_blank" rel="noopener" @click="recordClick(link)"
+                        class="text-sm text-slate-800 hover:text-indigo-600 font-medium block truncate"
+                        :title="link.title || link.url"
+                        x-text="link.title || link.url"></a>
+                      <div class="text-xs text-slate-400 mt-1 flex items-center gap-1.5">
+                        <span x-show="link.sharer_name" class="truncate" x-text="link.sharer_name"></span>
+                        <span x-show="link.sharer_name">·</span>
+                        <span class="shrink-0" x-text="formatTime(link.created_at)"></span>
+                      </div>
+                    </div>
+                  </div>
+                </li>
+              </template>
+            </ul>
+          </aside>
+
+        </div>
+      </section>
+
+      <!-- 链接库 -->
+      <section x-show="view === 'library'">
+        <div class="flex items-center justify-between mb-6">
+          <h1 class="text-2xl font-bold">链接库</h1>
+          <span class="text-sm text-slate-500" x-text="links.length + ' 条结果'"></span>
+        </div>
+
+        <div class="bg-white rounded-lg p-4 border border-slate-200 shadow-md mb-4 flex flex-wrap gap-3 items-center">
+          <input type="text" x-model="filters.q" @input.debounce.300ms="loadLinks()" placeholder="搜索标题 / URL / 分享人 / 标签..."
+            class="flex-1 min-w-[200px] px-3 py-2 border border-slate-300 rounded-md text-sm" />
+          <select x-model="filters.category" @change="loadLinks()" class="px-3 py-2 border border-slate-300 rounded-md text-sm">
+            <option value="">全部分类</option>
+            <template x-for="c in categories" :key="c">
+              <option :value="c" x-text="c"></option>
+            </template>
+          </select>
+          <select x-model="filters.sharer" @change="loadLinks()" class="px-3 py-2 border border-slate-300 rounded-md text-sm">
+            <option value="">全部分享人</option>
+            <template x-for="s in allSharers" :key="s.name">
+              <option :value="s.name" x-text="s.name + ' (' + s.link_count + ')'"></option>
+            </template>
+          </select>
+          <select x-model="filters.is_read" @change="loadLinks()" class="px-3 py-2 border border-slate-300 rounded-md text-sm">
+            <option value="">全部状态</option>
+            <option value="false">未读</option>
+            <option value="true">已读</option>
+          </select>
+          <button x-show="filters.q || filters.category || filters.is_read !== '' || filters.sharer || filters.tag"
+            @click="clearFilters()" class="text-sm text-slate-500 hover:text-slate-700">清空筛选</button>
+        </div>
+
+        <template x-if="links.length === 0">
+          <div class="bg-white rounded-lg border border-slate-200">
+            <p class="text-slate-400 text-sm text-center py-12">没有匹配的链接</p>
+          </div>
+        </template>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <template x-for="link in links" :key="link.id">
+            <div class="group bg-white rounded-lg border border-slate-200 shadow-md p-4 flex flex-col transition-all duration-200 hover:shadow-lg hover:-translate-y-px hover:border-indigo-200 cursor-default">
+              <!-- 顶部：分类 + 操作 -->
+              <div class="flex items-start justify-between gap-2 mb-2">
+                <div class="flex items-center gap-2 min-w-0">
+                  <button @click="toggleRead(link)" :title="link.is_read ? '已读' : '未读'"
+                    class="w-4 h-4 rounded-full border-2 shrink-0 transition"
+                    :class="link.is_read ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300 hover:border-amber-400'"></button>
+                  <span class="text-[11px] px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded font-medium" x-text="link.category"></span>
+                </div>
+                <div class="flex gap-1.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button @click="editLink(link)" class="text-xs text-slate-500 hover:text-indigo-600 px-1.5 py-0.5 rounded hover:bg-indigo-50">编辑</button>
+                  <button @click="deleteLink(link)" class="text-xs text-slate-500 hover:text-red-600 px-1.5 py-0.5 rounded hover:bg-red-50">删除</button>
+                </div>
+              </div>
+
+              <!-- 标题 -->
+              <a :href="link.url" target="_blank" rel="noopener" @click="recordClick(link)"
+                class="font-semibold text-slate-800 hover:text-indigo-600 leading-snug line-clamp-2 mb-1"
+                :title="link.title || link.url"
+                x-text="link.title || link.url"></a>
+
+              <!-- URL -->
+              <div class="text-xs text-slate-400 truncate mb-2" :title="link.url" x-text="link.url"></div>
+
+              <!-- 描述 -->
+              <p x-show="link.description"
+                class="text-sm text-slate-600 line-clamp-3 mb-2"
+                :title="link.description"
+                x-text="link.description"></p>
+
+              <!-- 备注 -->
+              <p x-show="link.note" class="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded line-clamp-2 mb-2">
+                📝 <span x-text="link.note"></span>
+              </p>
+
+              <!-- 标签 -->
+              <div x-show="link.tags && link.tags.length" class="flex flex-wrap gap-1 mb-2">
+                <template x-for="t in link.tags" :key="t">
+                  <button @click="filterByTag(t)" class="text-[11px] px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 rounded text-slate-600" x-text="'#' + t"></button>
+                </template>
+              </div>
+
+              <!-- 底部：分享人 + 点击数 + 时间，推到底 -->
+              <div class="mt-auto pt-2 border-t border-slate-100 flex items-center justify-between gap-2 text-xs text-slate-400">
+                <div class="min-w-0 truncate flex items-center gap-1.5">
+                  <span x-show="link.click_count > 0" class="text-amber-600" :title="'被点击 ' + link.click_count + ' 次'" x-text="'🔥 ' + link.click_count"></span>
+                  <span x-show="link.sharer_name">来自 <button @click="openSharer(link.sharer_name)" class="text-indigo-500 hover:underline" x-text="link.sharer_name"></button></span>
+                  <span x-show="link.added_by && link.sharer_name"> · </span>
+                  <span x-show="link.added_by">由 <span x-text="link.added_by"></span> 添加</span>
+                </div>
+                <span class="shrink-0" x-text="formatTime(link.created_at)"></span>
+              </div>
+            </div>
+          </template>
+        </div>
+      </section>
+
+      <!-- 分享人 -->
+      <section x-show="view === 'sharers'">
+        <div class="flex items-center justify-between mb-6">
+          <h1 class="text-2xl font-bold">
+            <span x-show="!filters.sharer">分享人</span>
+            <span x-show="filters.sharer">
+              <button @click="clearSharerFilter()" class="text-indigo-500 hover:underline">← 全部分享人</button>
+              <span class="ml-2" x-text="filters.sharer + ' 分享的链接'"></span>
+            </span>
+          </h1>
+        </div>
+
+        <!-- 分享人列表 -->
+        <div x-show="!filters.sharer" class="bg-white rounded-lg border border-slate-200">
+          <template x-if="allSharers.length === 0">
+            <p class="text-slate-400 text-sm text-center py-12">还没有分享人，去添加链接时填入吧</p>
+          </template>
+          <ul class="divide-y divide-slate-100">
+            <template x-for="s in allSharers" :key="s.name">
+              <li class="p-4 hover:bg-slate-50 flex items-center justify-between">
+                <button @click="openSharer(s.name)" class="text-left flex-1">
+                  <div class="font-medium text-indigo-600" x-text="s.name"></div>
+                </button>
+                <span class="text-sm text-slate-500" x-text="s.link_count + ' 条'"></span>
+              </li>
+            </template>
+          </ul>
+        </div>
+
+        <!-- 该分享人的链接 -->
+        <div x-show="filters.sharer" class="bg-white rounded-lg border border-slate-200">
+          <template x-if="links.length === 0">
+            <p class="text-slate-400 text-sm text-center py-12">这位还没分享过</p>
+          </template>
+          <ul class="divide-y divide-slate-100">
+            <template x-for="link in links" :key="link.id">
+              <li class="p-4 hover:bg-slate-50">
+                <div class="flex items-start gap-3">
+                  <span class="text-xs px-2 py-1 bg-indigo-50 text-indigo-700 rounded shrink-0" x-text="link.category"></span>
+                  <div class="flex-1 min-w-0">
+                    <a :href="link.url" target="_blank" rel="noopener" @click="recordClick(link)"
+                      class="font-medium text-slate-800 hover:text-indigo-600" x-text="link.title || link.url"></a>
+                    <p x-show="link.description" class="text-sm text-slate-600 mt-1" x-text="link.description"></p>
+                    <div class="text-xs text-slate-400 mt-2" x-text="link.created_at"></div>
+                  </div>
+                </div>
+              </li>
+            </template>
+          </ul>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- 编辑弹窗 -->
+    <div x-show="editing" x-cloak class="fixed inset-0 bg-black/40 flex items-center justify-center z-20 p-4" @click.self="editing = null">
+      <div class="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto" x-show="editing">
+        <h2 class="text-xl font-bold mb-4">编辑链接</h2>
+        <template x-if="editing">
+          <div class="space-y-3">
+            <div>
+              <label class="block text-sm font-medium mb-1">URL</label>
+              <input type="url" x-model="editing.url" class="w-full px-3 py-2 border border-slate-300 rounded-md" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">标题</label>
+              <input type="text" x-model="editing.title" class="w-full px-3 py-2 border border-slate-300 rounded-md" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">简介</label>
+              <textarea x-model="editing.description" rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-md"></textarea>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-sm font-medium mb-1">分类</label>
+                <select x-model="editing.category" class="w-full px-3 py-2 border border-slate-300 rounded-md">
+                  <template x-for="c in categories" :key="c">
+                    <option :value="c" x-text="c"></option>
+                  </template>
+                </select>
+              </div>
+              <div>
+                <label class="block text-sm font-medium mb-1">分享人</label>
+                <input type="text" x-model="editing.sharer_name" list="sharer-list-edit" class="w-full px-3 py-2 border border-slate-300 rounded-md" />
+                <datalist id="sharer-list-edit">
+                  <template x-for="s in allSharers" :key="s.name">
+                    <option :value="s.name"></option>
+                  </template>
+                </datalist>
+              </div>
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">标签（逗号分隔）</label>
+              <input type="text" x-model="editing._tagsRaw" class="w-full px-3 py-2 border border-slate-300 rounded-md" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">备注</label>
+              <textarea x-model="editing.note" rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-md"></textarea>
+            </div>
+            <label class="flex items-center text-sm">
+              <input type="checkbox" x-model="editing.is_read" class="mr-2" />
+              已读
+            </label>
+            <div class="flex justify-end gap-2 pt-2">
+              <button @click="editing = null" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-md text-sm">取消</button>
+              <button @click="saveEdit()" class="px-5 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700">保存</button>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js" defer></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
