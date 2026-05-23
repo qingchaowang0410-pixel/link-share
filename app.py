@@ -6,11 +6,11 @@ import hmac
 import json
 import os
 import secrets
-import sqlite3
 import time
 from pathlib import Path
 from typing import List, Optional
 
+import psycopg
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -36,7 +36,7 @@ BASE_DIR = Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
 
 # ---- 部署相关配置（全部从环境变量读，本地有默认值）----
-# SECRET_KEY：给登录 token 签名。线上务必在 Railway 设一个随机长串。
+# SECRET_KEY：给登录 token 签名。线上务必在 Render 设一个随机长串。
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-insecure-secret-change-me")
 # INVITE_CODE：注册门禁。为空 = 关闭注册（只有已存在的账号能登录）。
 INVITE_CODE = os.environ.get("INVITE_CODE", "").strip()
@@ -140,7 +140,7 @@ def api_register(payload: RegisterIn):
         )
         try:
             user = create_user(conn, username, password, is_admin=bool(is_admin))
-        except sqlite3.IntegrityError:
+        except psycopg.errors.UniqueViolation:
             raise HTTPException(409, "用户名已被占用")
     return {"ok": True, "token": _make_token(username), "user": user}
 
@@ -304,10 +304,11 @@ def api_create_link(payload: LinkIn, request: Request, x_user_name: Optional[str
     category = payload.category or guess_category(payload.url)
     with get_conn() as conn:
         sharer_id = upsert_sharer(conn, payload.sharer)
-        cur = conn.execute(
+        row = conn.execute(
             """
             INSERT INTO links (url, title, description, category, sharer_id, is_read, note, added_by, updated_by, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, now())
+            RETURNING id
             """,
             (
                 payload.url.strip(),
@@ -315,13 +316,13 @@ def api_create_link(payload: LinkIn, request: Request, x_user_name: Optional[str
                 payload.description.strip(),
                 category,
                 sharer_id,
-                1 if payload.is_read else 0,
+                payload.is_read,
                 payload.note.strip(),
                 actor,
                 actor,
             ),
-        )
-        link_id = cur.lastrowid
+        ).fetchone()
+        link_id = row["id"]
         tag_ids = upsert_tags(conn, payload.tags)
         set_link_tags(conn, link_id, tag_ids)
         return fetch_link_with_relations(conn, link_id)
@@ -352,7 +353,7 @@ def api_update_link(link_id: int, payload: LinkPatch, request: Request, x_user_n
             params.append(payload.note.strip())
         if payload.is_read is not None:
             fields.append("is_read = ?")
-            params.append(1 if payload.is_read else 0)
+            params.append(payload.is_read)
         if payload.sharer is not None:
             sharer_id = upsert_sharer(conn, payload.sharer)
             fields.append("sharer_id = ?")
@@ -361,7 +362,7 @@ def api_update_link(link_id: int, payload: LinkPatch, request: Request, x_user_n
         # 总是更新 updated_by / updated_at
         fields.append("updated_by = ?")
         params.append(actor)
-        fields.append("updated_at = datetime('now', 'localtime')")
+        fields.append("updated_at = now()")
 
         if fields:
             params.append(link_id)
@@ -395,7 +396,7 @@ def api_record_click(link_id: int, request: Request, x_user_name: Optional[str] 
             raise HTTPException(404, "链接不存在")
         conn.execute(
             "UPDATE links SET click_count = click_count + 1, "
-            "last_opened_at = datetime('now', 'localtime') WHERE id = ?",
+            "last_opened_at = now() WHERE id = ?",
             (link_id,),
         )
         conn.execute(
@@ -441,12 +442,12 @@ def api_stats():
         total = conn.execute("SELECT COUNT(*) AS c FROM links").fetchone()["c"]
         week_new = conn.execute(
             "SELECT COUNT(*) AS c FROM links "
-            "WHERE created_at >= datetime('now', '-7 days', 'localtime')"
+            "WHERE created_at >= now() - interval '7 days'"
         ).fetchone()["c"]
         # 本周点击总次数（团队活跃度）
         week_clicks = conn.execute(
             "SELECT COUNT(*) AS c FROM link_clicks "
-            "WHERE clicked_at >= datetime('now', '-7 days', 'localtime')"
+            "WHERE clicked_at >= now() - interval '7 days'"
         ).fetchone()["c"]
         by_category = [
             dict(r)
@@ -482,7 +483,7 @@ def api_stats():
         # ❄️ 冷门候选：从未点击 + 加入 ≥ 30 天，按"加入越久越靠前"
         cold_rows = conn.execute(
             "SELECT id FROM links WHERE click_count = 0 "
-            "AND created_at <= datetime('now', '-30 days', 'localtime') "
+            "AND created_at <= now() - interval '30 days' "
             "ORDER BY created_at ASC LIMIT 5"
         ).fetchall()
         cold_links = [fetch_link_with_relations(conn, r["id"]) for r in cold_rows]
@@ -510,7 +511,7 @@ def index():
 if __name__ == "__main__":
     import uvicorn
 
-    # 端口：线上平台（Railway）通过 $PORT 注入；本地默认 8000
+    # 端口：线上平台（Render）通过 $PORT 注入；本地默认 8000
     # 监听 0.0.0.0 让同一局域网的同事也能访问（同事浏览器打开 http://你的IP:8000）
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
